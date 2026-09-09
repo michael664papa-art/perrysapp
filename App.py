@@ -271,6 +271,8 @@ items_stock = {
     "Cajas para pollo": {"min": 15, "unidad": "uds", "val": 10},
     "Salseras": {"min": 50, "unidad": "uds", "val": 60},
     "Aceite": {"min": 10.0, "unidad": "litros", "val": 8.0},
+    "Aceite de trufa": {"min": 1, "unidad": "uds", "val": 1},
+    "Trufa": {"min": 70, "unidad": "g", "val": 100},
     "Cilantro": {"min": 200, "unidad": "g", "val": 150},
     "Lima": {"min": 4, "unidad": "limas", "val": 6},
     "Tomate": {"min": 1, "unidad": "tomate", "val": 2},
@@ -297,6 +299,15 @@ col_st1, col_st2 = st.columns(2)
 items_keys = list(items_stock.keys())
 mitad = math.ceil(len(items_keys) / 2)
 
+
+def get_step(unidad):
+    if unidad == "kg":
+        return 0.5
+    elif unidad == "g":
+        return 10.0
+    return 1.0
+
+
 with col_st1:
     for item in items_keys[:mitad]:
         conf = items_stock[item]
@@ -304,7 +315,7 @@ with col_st1:
             f"Queda de {item} ({conf['unidad']}):",
             min_value=0.0,
             value=float(conf["val"]),
-            step=1.0 if conf["unidad"] != "kg" else 0.5,
+            step=get_step(conf["unidad"]),
             key=f"st_{item}",
         )
 
@@ -315,7 +326,7 @@ with col_st2:
             f"Queda de {item} ({conf['unidad']}):",
             min_value=0.0,
             value=float(conf["val"]),
-            step=1.0 if conf["unidad"] != "kg" else 0.5,
+            step=get_step(conf["unidad"]),
             key=f"st_{item}",
         )
 
