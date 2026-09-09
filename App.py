@@ -152,10 +152,10 @@ st.markdown("**🛒 Pedido Neto y WhatsApp Directo**")
 TEL_BEDARONA = "34656783379"  # Manuel (Pan y Papas)
 TEL_XURBANO = "34657798229"  # Xurbano (Carnicer)
 
-# Mensajes formateados
-msg_bedarona = f"Hola Manuel! Para Perry's Burgers necesitamos para este martes:\n- {cajas_pan_pedir} cajas de pan ({cajas_pan_pedir*18} uds)\n- {cajas_patatas_pedir} cajas de patatas (12.5 kg c/u)\n\n¡Muchas gracias!"
+# Mensajes formateados limpios
+msg_bedarona = f"Buenas, para esta semana necesito:\n- {cajas_pan_pedir} cajas de pan\n- {cajas_patatas_pedir} cajas de patatas"
 
-msg_carne = f"Hola Xurbano! Para Perry's Burgers necesitamos el siguiente pedido de carne para esta semana:\n\n- Miércoles: {pecho_kg} kg de pecho y {aguja_kg} kg de aguja de vaca.\n- Viernes: {pecho_kg} kg de pecho y {aguja_kg} kg de aguja de vaca.\n\n¡Muchas gracias!"
+msg_carne = f"Buenas, para esta semana necesito:\n- Miércoles: {pecho_kg} kg de pecho y {aguja_kg} kg de aguja de vaca\n- Viernes: {pecho_kg} kg de pecho y {aguja_kg} kg de aguja de vaca"
 
 url_bedarona = (
     f"https://wa.me/{TEL_BEDARONA}?text={urllib.parse.quote(msg_bedarona)}"
@@ -166,7 +166,7 @@ url_carne = f"https://wa.me/{TEL_XURBANO}?text={urllib.parse.quote(msg_carne)}"
 col_b1, col_b2 = st.columns([3, 2])
 with col_b1:
     st.info(
-        f"🍞🍟 **Bedaraona (Manuel):** {cajas_pan_pedir} cajas de pan + {cajas_patatas_pedir} cajas de patatas"
+        f"🍞🍟 **Bedarona (Manuel):** {cajas_pan_pedir} cajas de pan + {cajas_patatas_pedir} cajas de patatas"
     )
 with col_b2:
     st.link_button("📲 Pedir a Manuel (WA)", url_bedarona)
