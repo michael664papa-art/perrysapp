@@ -1,8 +1,10 @@
 import datetime
 import math
 import urllib.parse
+import pandas as pd
 import requests
 import streamlit as st
+from streamlit_gsheets import GSheetsConnection
 
 st.set_page_config(
     page_title="Perry's Burgers - Compras Pro", page_icon="🍔", layout="centered"
@@ -11,18 +13,30 @@ st.set_page_config(
 st.title("🍔 Perry's Burgers")
 st.subheader("Sistema de Compras Automático")
 
-# 1. HISTORIAL DE CONSUMO Y VENTAS
-if "historial_ventas" not in st.session_state:
-    st.session_state.historial_ventas = [55, 50, 58]
+# 1. CONEXIÓN A GOOGLE SHEETS & HISTORIAL PERMANENTE
+conn = st.connection("gsheets", type=GSheetsConnection)
 
-base_aprendida = math.ceil(
-    sum(st.session_state.historial_ventas)
-    / len(st.session_state.historial_ventas)
-)
-ultimas_ventas = st.session_state.historial_ventas[-1]
 
-# --- NUEVO APARTADO: VENTAS DE LA SEMANA PASADA ---
-st.markdown("**📊 Registro de Ventas**")
+def cargar_historial():
+    try:
+        df = conn.read(ttl=0)
+        if not df.empty and "Ventas" in df.columns:
+            ventas_list = df["Ventas"].dropna().astype(int).tolist()
+            if ventas_list:
+                return df, ventas_list
+    except Exception:
+        pass
+    # Base inicial por defecto si aún no hay conexión
+    return pd.DataFrame(columns=["Fecha", "Ventas"]), [55, 50, 58]
+
+
+df_historial, historial_ventas = cargar_historial()
+
+base_aprendida = math.ceil(sum(historial_ventas) / len(historial_ventas))
+ultimas_ventas = historial_ventas[-1]
+
+# --- REGISTRO DE VENTAS EN PANTALLA ---
+st.markdown("**📊 Registro de Ventas (Google Sheets ☁️)**")
 col_res1, col_res2 = st.columns(2)
 with col_res1:
     st.metric(
@@ -191,13 +205,13 @@ with col_x2:
 
 st.divider()
 
-# --- CIERRE DE SEMANA (AUTO-APRENDIZAJE DOMINGO) ---
+# --- CIERRE DE SEMANA (GUARDADO EN GOOGLE SHEETS) ---
 st.markdown("**🤖 Cierre de Semana (Domingo)**")
 
 panes_totales_disponibles = pan_sobrante_martes + (cajas_pan_pedir * 18)
 
 st.caption(
-    f"ℹ️ **Total de panes con los que contaste esta semana:** {panes_totales_disponibles} uds ({pan_sobrante_martes} que tenías + {cajas_pan_pedir*18} comprados)."
+    f"ℹ️ **Total de panes disponibles esta semana:** {panes_totales_disponibles} uds ({pan_sobrante_martes} que tenías + {cajas_pan_pedir*18} comprados)."
 )
 
 pan_sobrante_domingo = st.number_input(
@@ -207,14 +221,29 @@ pan_sobrante_domingo = st.number_input(
     step=1,
 )
 
-if st.button("Guardar datos y recalibrar IA"):
+if st.button("Guardar datos en Google Sheets y recalibrar IA"):
     ventas_calculadas = panes_totales_disponibles - pan_sobrante_domingo
     if ventas_calculadas >= 0:
-        st.session_state.historial_ventas.append(ventas_calculadas)
-        st.success(
-            f"🎯 **Consumo real calculado:** ~{ventas_calculadas} burgers vendidas. Base recalibrada para la próxima semana."
+        fecha_hoy = datetime.date.today().strftime("%Y-%m-%d")
+        nueva_fila = pd.DataFrame(
+            [{"Fecha": fecha_hoy, "Ventas": int(ventas_calculadas)}]
         )
+        df_actualizado = pd.concat(
+            [df_historial, nueva_fila], ignore_index=True
+        )
+
+        try:
+            conn.update(data=df_actualizado)
+            st.success(
+                f"🎯 **Registrado en Google Sheets:** ~{ventas_calculadas} burgers vendidas. ¡Guardado para siempre en la nube!"
+            )
+            st.cache_data.clear()
+        except Exception:
+            st.warning(
+                f"Consumo calculado (~{ventas_calculadas} burgers). Verifica el enlace en Secrets para asegurar la sincronización en la nube."
+            )
     else:
         st.error(
             "El sobrante del domingo no puede ser mayor al total de panes disponibles."
         )
+
