@@ -11,7 +11,7 @@ st.set_page_config(
 st.title("🍔 Perry's Burgers")
 st.subheader("Sistema de Compras Automático")
 
-# 1. HISTORIAL DE CONSUMO
+# 1. HISTORIAL DE CONSUMO Y VENTAS
 if "historial_ventas" not in st.session_state:
     st.session_state.historial_ventas = [55, 50, 58]
 
@@ -19,6 +19,21 @@ base_aprendida = math.ceil(
     sum(st.session_state.historial_ventas)
     / len(st.session_state.historial_ventas)
 )
+ultimas_ventas = st.session_state.historial_ventas[-1]
+
+# --- NUEVO APARTADO: VENTAS DE LA SEMANA PASADA ---
+st.markdown("**📊 Registro de Ventas**")
+col_res1, col_res2 = st.columns(2)
+with col_res1:
+    st.metric(
+        label="Burgers vendidas la semana pasada", value=f"{ultimas_ventas} uds"
+    )
+with col_res2:
+    st.metric(
+        label="Promedio semanal acumulado", value=f"{base_aprendida} uds"
+    )
+
+st.divider()
 
 
 # 2. PRONÓSTICO CLIMÁTICO SEMANAL (MIÉRCOLES A DOMINGO)
@@ -203,4 +218,3 @@ if st.button("Guardar datos y recalibrar IA"):
         st.error(
             "El sobrante del domingo no puede ser mayor al total de panes disponibles."
         )
-
