@@ -16,7 +16,17 @@ st.title("🍔 Perry's Burgers")
 
 # URL del conector de Google Sheets desde Secrets
 URL_WEBAPP = st.secrets.get("URL_WEBAPP", "")
-TEL_MI_NUMERO = "34643277489"  # Teléfono configurado para lista de compra
+TEL_MI_NUMERO = "34643277489"
+
+# Nombres de salsas
+salsas_nombres = ["Sweet", "Trufa", "Lima", "BBQ", "Cheddar", "Mex"]
+
+# Inicializar estados de producción y mermas en sesión si no existen
+if "salsas_hechas" not in st.session_state:
+    st.session_state.salsas_hechas = {s: 850 for s in salsas_nombres}
+
+if "salsas_sobrantes" not in st.session_state:
+    st.session_state.salsas_sobrantes = {s: 100 for s in salsas_nombres}
 
 
 # 1. CARGA DE HISTORIAL
@@ -202,68 +212,69 @@ with tab_martes:
 # PESTAÑA 2: MIÉRCOLES (PREPARACIÓN EN COCINA)
 # ----------------------------------------------------------
 with tab_miercoles:
-    st.subheader("👨‍🍳 Tanda de Producción de Salsas")
+    st.subheader("👨‍🍳 Producción de Salsas del Miércoles")
     st.caption(
-        "Escandallos integrados: Sweet (Sweet & Classic @ 20g/ud), Lima (Chicken @ 30g/ud), Trufa (Trufada)."
+        "Aquí registras la cantidad de salsa que cocinas hoy. La sugerencia se ajusta restando lo que tiraste el domingo anterior."
     )
-
-    salsas_nombres = ["Sweet", "Trufa", "Lima", "BBQ", "Cheddar", "Mex"]
-    salsas_hechas = {}
-    salsas_sobrantes = {}
-
-    with st.expander("📝 Editar datos de la semana anterior (Mermas)"):
-        col_s1, col_s2 = st.columns(2)
-        with col_s1:
-            st.markdown("**Gramos Elaborados:**")
-            for s in salsas_nombres:
-                salsas_hechas[s] = st.number_input(
-                    f"{s} hechos (g):",
-                    min_value=0,
-                    value=1000,
-                    step=100,
-                    key=f"h_{s}",
-                )
-        with col_s2:
-            st.markdown("**Gramos Tirados (Merma):**")
-            for s in salsas_nombres:
-                salsas_sobrantes[s] = st.number_input(
-                    f"{s} tirados (g):",
-                    min_value=0,
-                    value=150,
-                    step=50,
-                    key=f"s_{s}",
-                )
 
     ratio_ventas = (
         (burgers_estimadas / ultimas_ventas) if ultimas_ventas > 0 else 1.0
     )
 
-    st.markdown("### 🥣 Cantidad Exacta a Elaborar Hoy:")
-
-    total_merma_g = 0
+    # Cálculo exacto: Consumo Real = Elaborado - Sobrante
+    salsas_recomendadas = {}
     for s in salsas_nombres:
-        consumo_real = max(0, salsas_hechas[s] - salsas_sobrantes[s])
-        gramos_recomendados = (
-            math.ceil((consumo_real * ratio_ventas) / 50) * 50
-        )
-        if gramos_recomendados < 200 and consumo_real > 0:
-            gramos_recomendados = 200
+        hecho_prev = st.session_state.salsas_hechas.get(s, 850)
+        sobra_prev = st.session_state.salsas_sobrantes.get(s, 100)
 
-        total_merma_g += salsas_sobrantes[s]
+        # Consumo real neto consumido por los clientes
+        consumo_real = max(0, hecho_prev - sobra_prev)
 
-        nota_escandallo = ""
-        if s == "Sweet":
-            nota_escandallo = " (Chesse/Classic + Sweet & Cryspy)"
-        elif s == "Lima":
-            nota_escandallo = " (Lima Cryspy Chicken @ 30g)"
+        # Sugerir para la nueva semana según la nueva estimación de ventas
+        rec = math.ceil((consumo_real * ratio_ventas) / 50) * 50
+        if rec < 200 and consumo_real > 0:
+            rec = 200
+        salsas_recomendadas[s] = rec if rec > 0 else 800
 
+    st.markdown("### 🥣 Registra la cantidad preparada hoy:")
+
+    nuevas_cantidades_hechas = {}
+    col_s1, col_s2 = st.columns(2)
+
+    for idx, s in enumerate(salsas_nombres):
+        target_col = col_s1 if idx % 2 == 0 else col_s2
+        with target_col:
+            rec_val = salsas_recomendadas[s]
+            val_actual = st.session_state.salsas_hechas.get(s, rec_val)
+
+            nota_salsa = ""
+            if s == "Sweet":
+                nota_salsa = " (Classic + Sweet)"
+            elif s == "Lima":
+                nota_salsa = " (Chicken)"
+
+            nuevas_cantidades_hechas[s] = st.number_input(
+                f"Salsa {s}{nota_salsa} (Sugerido: {rec_val}g):",
+                min_value=0,
+                value=int(val_actual),
+                step=50,
+                key=f"prod_mie_{s}",
+            )
+
+    if st.button("💾 Guardar Producción del Miércoles", type="primary"):
+        st.session_state.salsas_hechas = nuevas_cantidades_hechas
         st.success(
-            f"👉 **Salsa {s}{nota_escandallo}:** Preparar **{gramos_recomendados} g**"
+            "✅ ¡Gramos elaborados guardados! El domingo introducirás lo sobrante para calcular el consumo neto real."
         )
 
-    coste_estimado_merma = round(total_merma_g * 0.012, 2)
-    st.warning(
-        f"🗑️ **Mermas del domingo:** Tiraste {total_merma_g}g de salsa en total (~{coste_estimado_merma}€ perdidos)."
+    st.info(
+        "📌 **Guardado actualmente para esta semana:** "
+        + " | ".join(
+            [
+                f"**{k}:** {v}g"
+                for k, v in st.session_state.salsas_hechas.items()
+            ]
+        )
     )
 
 
@@ -271,7 +282,42 @@ with tab_miercoles:
 # PESTAÑA 3: DOMINGO (INVENTARIO DE ALMACÉN Y CIERRE)
 # ----------------------------------------------------------
 with tab_domingo:
-    st.subheader("📋 Recuento de Almacén (Domingo Noche)")
+    st.subheader("📋 Recuento y Cierre (Domingo Noche)")
+
+    # RECUENTO DE SALSAS SOBRANTES DEL DOMINGO
+    st.markdown("### 🥣 Gramos de Salsa Sobrantes (Sobrante/Tirado)")
+    st.caption(
+        "Introduce lo que ha quedado en los recipientes el domingo al cerrar. La app lo restará de lo que hiciste el miércoles para recalcular la producción exacta de la próxima semana."
+    )
+
+    nuevas_mermas = {}
+    col_m1, col_m2 = st.columns(2)
+
+    for idx, s in enumerate(salsas_nombres):
+        target_col = col_m1 if idx % 2 == 0 else col_m2
+        with target_col:
+            hecho_mie = st.session_state.salsas_hechas.get(s, 0)
+            val_sobra = st.session_state.salsas_sobrantes.get(s, 0)
+
+            nuevas_mermas[s] = st.number_input(
+                f"Salsa {s} sobrante (Elaborado el mié: {hecho_mie}g):",
+                min_value=0,
+                value=int(val_sobra),
+                step=50,
+                key=f"merma_dom_{s}",
+            )
+
+    total_merma_g = sum(nuevas_mermas.values())
+    coste_estimado_merma = round(total_merma_g * 0.012, 2)
+
+    # Detalle de consumo neto
+    st.warning(
+        f"🗑️ **Sobrantes totales:** {total_merma_g}g tirados (~{coste_estimado_merma}€ en mermas). "
+        f"Este excedente se descontará de la receta de la semana que viene."
+    )
+
+    st.markdown("---")
+    st.markdown("### 📦 Stock de Almacén")
 
     items_stock = {
         "Papel de cera": {"min": 100, "unidad": "uds", "val": 120},
@@ -364,13 +410,10 @@ with tab_domingo:
         st.success("✅ Todo el stock de almacén supera los mínimos.")
         lista_compra_txt += "Todo en orden. No hace falta comprar nada."
 
-    # Enviar directo a +34 643 27 74 89
     url_lista_wa = (
         f"https://wa.me/{TEL_MI_NUMERO}?text={urllib.parse.quote(lista_compra_txt)}"
     )
-    st.link_button(
-        "📲 Enviar Lista de Compra por WhatsApp (+34 643 27 74 89)", url_lista_wa
-    )
+    st.link_button("📲 Enviar Lista de Compra por WhatsApp", url_lista_wa)
 
     st.markdown("---")
     st.markdown("### 🤖 Cierre de Semana y Envío a Sheets")
@@ -386,6 +429,7 @@ with tab_domingo:
     confirmar = st.checkbox("✔ Confirmar que quiero registrar el cierre hoy")
 
     if st.button("Guardar Cierre en Google Sheets", disabled=not confirmar):
+        st.session_state.salsas_sobrantes = nuevas_mermas
         ventas_calculadas = panes_totales_disponibles - pan_sobrante_domingo
         if ventas_calculadas >= 0:
             fecha_hoy = datetime.date.today().strftime("%Y-%m-%d")
@@ -401,7 +445,7 @@ with tab_domingo:
                     )
                     if "OK" in r.text:
                         st.success(
-                            f"🎯 **¡Guardado con éxito!** Registradas ~{ventas_calculadas} burgers vendidas."
+                            f"🎯 **¡Guardado con éxito!** Se registraron ~{ventas_calculadas} burgers y las mermas de salsa."
                         )
                         st.cache_data.clear()
                     else:
@@ -414,3 +458,4 @@ with tab_domingo:
             st.error(
                 "El sobrante del domingo no puede superar los panes disponibles."
             )
+
