@@ -4,48 +4,44 @@ import urllib.parse
 import pandas as pd
 import requests
 import streamlit as st
-from streamlit_gsheets import GSheetsConnection
 
 st.set_page_config(
-    page_title="Perry's Burgers - Compras Pro", page_icon="🍔", layout="centered"
+    page_title="Perry's Burgers - Control Total Pro", page_icon="🍔", layout="centered"
 )
 
 st.title("🍔 Perry's Burgers")
-st.subheader("Sistema de Compras Automático")
+st.subheader("Sistema de Compras y Control de Stock")
 
-# 1. CONEXIÓN A GOOGLE SHEETS & HISTORIAL PERMANENTE
-conn = st.connection("gsheets", type=GSheetsConnection)
-
-
-def cargar_historial():
-    try:
-        df = conn.read(ttl=0)
-        if not df.empty and "Ventas" in df.columns:
-            ventas_list = df["Ventas"].dropna().astype(int).tolist()
-            if ventas_list:
-                return df, ventas_list
-    except Exception:
-        pass
-    # Base inicial por defecto si aún no hay conexión
-    return pd.DataFrame(columns=["Fecha", "Ventas"]), [55, 50, 58]
+# URL del conector de Google Sheets desde Secrets
+URL_WEBAPP = st.secrets.get("URL_WEBAPP", "")
 
 
-df_historial, historial_ventas = cargar_historial()
+# 1. HISTORIAL DE CONSUMO
+@st.cache_data(ttl=5)
+def cargar_historial(url):
+    if url:
+        try:
+            res = requests.get(f"{url}?action=read", timeout=5).json()
+            if isinstance(res, list) and len(res) > 0:
+                return res
+        except Exception:
+            pass
+    return [55, 50, 58]
 
+
+historial_ventas = cargar_historial(URL_WEBAPP)
 base_aprendida = math.ceil(sum(historial_ventas) / len(historial_ventas))
 ultimas_ventas = historial_ventas[-1]
 
-# --- REGISTRO DE VENTAS EN PANTALLA ---
-st.markdown("**📊 Registro de Ventas (Google Sheets ☁️)**")
+# --- REGISTRO DE VENTAS ---
+st.markdown("**📊 Registro de Ventas**")
 col_res1, col_res2 = st.columns(2)
 with col_res1:
     st.metric(
         label="Burgers vendidas la semana pasada", value=f"{ultimas_ventas} uds"
     )
 with col_res2:
-    st.metric(
-        label="Promedio semanal acumulado", value=f"{base_aprendida} uds"
-    )
+    st.metric(label="Promedio semanal acumulado", value=f"{base_aprendida} uds")
 
 st.divider()
 
@@ -147,7 +143,7 @@ factor_clima = 1.0 + (dias_lluvia_total * 0.07)
 factor_evento = 1.15 if hay_partido_casa else 1.0
 burgers_estimadas = math.ceil(base_aprendida * factor_clima * factor_evento)
 
-# CÁLCULOS NETOS DE COMPRA
+# CÁLCULOS NETOS DE COMPRA BÁSICOS
 panes_necesarios = max(0, burgers_estimadas - pan_sobrante_martes)
 cajas_pan_pedir = math.ceil(panes_necesarios / 18)
 
@@ -159,11 +155,9 @@ cajas_patatas_pedir = math.ceil(
     max(0.0, kg_patatas_total - patatas_sobrantes_martes) / 12.5
 )
 
-# CÁLCULO DE CARNE (35% Pecho / 65% Aguja)
 kg_por_entrega = kg_vacuno_pedir / 2
 pecho_kg = round(kg_por_entrega * 0.35)
 aguja_kg = round(kg_por_entrega * 0.65)
-
 if (pecho_kg + aguja_kg) != round(kg_por_entrega) and kg_por_entrega > 0:
     aguja_kg = max(0, round(kg_por_entrega) - pecho_kg)
 
@@ -177,7 +171,7 @@ st.divider()
 st.markdown("**🛒 Pedido Neto y WhatsApp Directo**")
 
 TEL_BEDARONA = "34656783379"  # Manuel (Pan y Papas)
-TEL_XURBANO = "34657798229"  # Xurbano (Carnicer)
+TEL_XURBANO = "34657798229"  # Xurbano (Carnicero)
 
 msg_bedarona = f"Buenas, para esta semana necesito:\n- {cajas_pan_pedir} cajas de pan\n- {cajas_patatas_pedir} cajas de patatas"
 msg_carne = f"Buenas, para esta semana necesito:\n- Miércoles: {pecho_kg} kg de pecho y {aguja_kg} kg de aguja de vaca\n- Viernes: {pecho_kg} kg de pecho y {aguja_kg} kg de aguja de vaca"
@@ -205,15 +199,135 @@ with col_x2:
 
 st.divider()
 
-# --- CIERRE DE SEMANA (GUARDADO EN GOOGLE SHEETS) ---
+# ==========================================================
+# 4. APARTADO DE SALSAS (Elaboración y Sobrantes)
+# ==========================================================
+st.markdown(
+    "🍯 **Control de Salsas (Gramos hechos vs Sobrante de la semana)**"
+)
+
+salsas_nombres = ["Sweet", "Trufa", "Lima", "BBQ", "Cheddar", "Mex"]
+salsas_hechas = {}
+salsas_sobrantes = {}
+
+col_s1, col_s2 = st.columns(2)
+with col_s1:
+    st.markdown("🔹 **Gramos Hechos esta semana**")
+    for s in salsas_nombres:
+        salsas_hechas[s] = st.number_input(
+            f"Hechos {s} (g):", min_value=0, value=1000, step=100, key=f"h_{s}"
+        )
+
+with col_s2:
+    st.markdown("🔸 **Gramos Sobrantes al Domingo**")
+    for s in salsas_nombres:
+        salsas_sobrantes[s] = st.number_input(
+            f"Sobran {s} (g):", min_value=0, value=200, step=50, key=f"s_{s}"
+        )
+
+# Cálculo de consumo real de salsas
+st.info("💡 **Consumo real de salsas calculado esta semana:**")
+for s in salsas_nombres:
+    consumo_salsa = max(0, salsas_hechas[s] - salsas_sobrantes[s])
+    st.write(f"- **{s}:** Se han consumido **{consumo_salsa} g**")
+
+st.divider()
+
+# ==========================================================
+# 5. APARTADO DE STOCK GENERAL Y MÍNIMOS SEMANALES
+# ==========================================================
+st.markdown("📋 **Control de Stock General y Lista de Compra para el Domingo**")
+st.caption(
+    "Introduce la cantidad que te queda de cada producto al cerrar el local el domingo. La app te dirá automáticamente qué debes comprar y qué no."
+)
+
+# Definimos los ítems de stock con su mínimo semanal
+items_stock = {
+    "Papel de cera": {"min": 100, "unidad": "uds", "val": 120},
+    "Cajas de burgers": {"min": 100, "unidad": "uds", "val": 150},
+    "Servilletas": {"min": 100, "unidad": "uds", "val": 110},
+    "Petacas de papas": {"min": 100, "unidad": "uds", "val": 90},
+    "Queso cheddar": {"min": 3, "unidad": "paquetes (1kg)", "val": 4},
+    "Queso gouda": {"min": 2, "unidad": "paquetes", "val": 2},
+    "Jalapeño": {"min": 1, "unidad": "bote", "val": 1},
+    "Chili chipotle": {"min": 1, "unidad": "bote", "val": 2},
+    "Cebolla": {"min": 1.0, "unidad": "kg", "val": 1.5},
+    "Rúcula": {"min": 300, "unidad": "g", "val": 200},
+    "Cajas para pollo": {"min": 15, "unidad": "uds", "val": 10},
+    "Salseras": {"min": 50, "unidad": "uds", "val": 60},
+    "Aceite": {"min": 10.0, "unidad": "litros", "val": 8.0},
+    "Cilantro": {"min": 200, "unidad": "g", "val": 150},
+    "Lima": {"min": 4, "unidad": "limas", "val": 6},
+    "Tomate": {"min": 1, "unidad": "tomate", "val": 2},
+    "Tiras de bacon": {"min": 1, "unidad": "paquete", "val": 0},
+    "Bites de bacon": {"min": 1, "unidad": "paquete", "val": 1},
+    "Pollo": {"min": 1.0, "unidad": "kg", "val": 1.5},
+    "Corn flakes": {"min": 1.0, "unidad": "kg", "val": 0.5},
+    "Harina": {"min": 300, "unidad": "g", "val": 500},
+    "Huevo": {"min": 12, "unidad": "huevos", "val": 15},
+    "Nata para cocinar": {"min": 500, "unidad": "g", "val": 300},
+    "Nata para montar": {"min": 500, "unidad": "g", "val": 600},
+    "Crema de pistacho": {"min": 300, "unidad": "g", "val": 200},
+    "Azúcar": {"min": 200, "unidad": "g", "val": 300},
+    "Queso crema": {"min": 500, "unidad": "g", "val": 400},
+    "Coca Cola original": {"min": 15, "unidad": "latas", "val": 12},
+    "Coca Cola zero": {"min": 15, "unidad": "latas", "val": 20},
+    "Agua": {"min": 10, "unidad": "botellas", "val": 15},
+    "Estrella (lata)": {"min": 10, "unidad": "latas", "val": 5},
+}
+
+stock_actual = {}
+col_st1, col_st2 = st.columns(2)
+
+items_keys = list(items_stock.keys())
+mitad = math.ceil(len(items_keys) / 2)
+
+with col_st1:
+    for item in items_keys[:mitad]:
+        conf = items_stock[item]
+        stock_actual[item] = st.number_input(
+            f"Queda de {item} ({conf['unidad']}):",
+            min_value=0.0,
+            value=float(conf["val"]),
+            step=1.0 if conf["unidad"] != "kg" else 0.5,
+            key=f"st_{item}",
+        )
+
+with col_st2:
+    for item in items_keys[mitad:]:
+        conf = items_stock[item]
+        stock_actual[item] = st.number_input(
+            f"Queda de {item} ({conf['unidad']}):",
+            min_value=0.0,
+            value=float(conf["val"]),
+            step=1.0 if conf["unidad"] != "kg" else 0.5,
+            key=f"st_{item}",
+        )
+
+st.markdown("### 🛒 Lista de Compra Sugerida (Basada en tus Mínimos y Stock)")
+comprar_algo = False
+for item, conf in items_stock.items():
+    sobra = stock_actual[item]
+    minimo = conf["min"]
+    if sobra < minimo:
+        faltante = minimo - sobra
+        st.warning(
+            f"⚠️ **Comprar {item}:** Te quedan {sobra} {conf['unidad']} (El mínimo es {minimo}). Faltan aprox. **{faltante} {conf['unidad']}**."
+        )
+        comprar_algo = True
+    else:
+        st.success(
+            f"✅ **{item}:** Tienes {sobra} {conf['unidad']} (Suficiente, no comprar)."
+        )
+
+st.divider()
+
+# ==========================================================
+# 6. CIERRE DE SEMANA (GOOGLE SHEETS)
+# ==========================================================
 st.markdown("**🤖 Cierre de Semana (Domingo)**")
 
 panes_totales_disponibles = pan_sobrante_martes + (cajas_pan_pedir * 18)
-
-st.caption(
-    f"ℹ️ **Total de panes disponibles esta semana:** {panes_totales_disponibles} uds ({pan_sobrante_martes} que tenías + {cajas_pan_pedir*18} comprados)."
-)
-
 pan_sobrante_domingo = st.number_input(
     "🍞 Panes sueltos que te quedan HOY DOMINGO al cerrar el local:",
     min_value=0,
@@ -225,22 +339,25 @@ if st.button("Guardar datos en Google Sheets y recalibrar IA"):
     ventas_calculadas = panes_totales_disponibles - pan_sobrante_domingo
     if ventas_calculadas >= 0:
         fecha_hoy = datetime.date.today().strftime("%Y-%m-%d")
-        nueva_fila = pd.DataFrame(
-            [{"Fecha": fecha_hoy, "Ventas": int(ventas_calculadas)}]
-        )
-        df_actualizado = pd.concat(
-            [df_historial, nueva_fila], ignore_index=True
-        )
-
-        try:
-            conn.update(data=df_actualizado)
-            st.success(
-                f"🎯 **Registrado en Google Sheets:** ~{ventas_calculadas} burgers vendidas. ¡Guardado para siempre en la nube!"
-            )
-            st.cache_data.clear()
-        except Exception:
-            st.warning(
-                f"Consumo calculado (~{ventas_calculadas} burgers). Verifica el enlace en Secrets para asegurar la sincronización en la nube."
+        if URL_WEBAPP:
+            try:
+                r = requests.get(
+                    URL_WEBAPP,
+                    params={"fecha": fecha_hoy, "ventas": ventas_calculadas},
+                    timeout=10,
+                )
+                if "OK" in r.text:
+                    st.success(
+                        f"🎯 **¡Guardado con éxito en Google Sheets!** Ventas registradas: ~{ventas_calculadas} burgers."
+                    )
+                    st.cache_data.clear()
+                else:
+                    st.error("Error al escribir en la hoja.")
+            except Exception as e:
+                st.error(f"Error de conexión: {e}")
+        else:
+            st.error(
+                "Falta configurar la variable URL_WEBAPP en Secrets de Streamlit."
             )
     else:
         st.error(
