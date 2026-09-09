@@ -10,7 +10,7 @@ st.set_page_config(
 )
 
 st.title("🍔 Perry's Burgers")
-st.subheader("Sistema de Compras y Control de Stock")
+st.subheader("Sistema de Compras, Stock y Preparación de Salsas")
 
 # URL del conector de Google Sheets desde Secrets
 URL_WEBAPP = st.secrets.get("URL_WEBAPP", "")
@@ -31,7 +31,7 @@ def cargar_historial(url):
 
 historial_ventas = cargar_historial(URL_WEBAPP)
 base_aprendida = math.ceil(sum(historial_ventas) / len(historial_ventas))
-ultimas_ventas = historial_ventas[-1]
+ultimas_ventas = historial_ventas[-1] if historial_ventas else 50
 
 # --- REGISTRO DE VENTAS ---
 st.markdown("**📊 Registro de Ventas**")
@@ -122,21 +122,21 @@ else:
 
 st.divider()
 
-# --- INVENTARIO DEL MARTES ---
-st.markdown("**📦 Stock en Cocina (Martes)**")
+# --- INVENTARIO DE DOMINGO NOCHE ---
+st.markdown("**📦 Stock Base de Materia Prima (Domingo Noche)**")
 col_pan, col_carne, col_patatas = st.columns(3)
 
 with col_pan:
     pan_sobrante_martes = st.number_input(
-        "🍞 Panes sueltos que quedan hoy:", min_value=0, value=32, step=1
+        "🍞 Panes sueltos que quedan:", min_value=0, value=15, step=1
     )
 with col_carne:
     carne_sobrante_martes = st.number_input(
-        "🥩 Kg vacuno sobrantes hoy:", min_value=0.0, value=0.0, step=0.5
+        "🥩 Kg vacuno sobrantes:", min_value=0.0, value=0.0, step=0.5
     )
 with col_patatas:
     patatas_sobrantes_martes = st.number_input(
-        "🍟 Kg patatas sobrantes hoy:", min_value=0.0, value=3.0, step=0.5
+        "🍟 Kg patatas sobrantes:", min_value=0.0, value=2.0, step=0.5
     )
 
 factor_clima = 1.0 + (dias_lluvia_total * 0.07)
@@ -162,13 +162,13 @@ if (pecho_kg + aguja_kg) != round(kg_por_entrega) and kg_por_entrega > 0:
     aguja_kg = max(0, round(kg_por_entrega) - pecho_kg)
 
 st.success(
-    f"📈 **Demanda Estimada:** ~{burgers_estimadas} burgers (Clima + Eventos)"
+    f"📈 **Demanda Estimada Próxima Semana:** ~{burgers_estimadas} burgers (Ajustada por Clima + Eventos)"
 )
 
 st.divider()
 
 # --- PEDIDOS Y WHATSAPP DIRECTO ---
-st.markdown("**🛒 Pedido Neto y WhatsApp Directo**")
+st.markdown("**🛒 Pedidos del Martes (WhatsApp Directo)**")
 
 TEL_BEDARONA = "34656783379"  # Manuel (Pan y Papas)
 TEL_XURBANO = "34657798229"  # Xurbano (Carnicero)
@@ -200,10 +200,13 @@ with col_x2:
 st.divider()
 
 # ==========================================================
-# 4. APARTADO DE SALSAS (Elaboración y Sobrantes)
+# 4. CÁLCULO INTELIGENTE DE ELABORACIÓN DE SALSAS
 # ==========================================================
 st.markdown(
-    "🍯 **Control de Salsas (Gramos hechos vs Sobrante de la semana)**"
+    "🥣 **Calculadora Inteligente de Salsas (Para preparar el Miércoles)**"
+)
+st.caption(
+    "Pon lo que elaboraste la semana pasada y lo que tiraste el domingo. La IA ajustará la receta exacta a preparar el próximo miércoles."
 )
 
 salsas_nombres = ["Sweet", "Trufa", "Lima", "BBQ", "Cheddar", "Mex"]
@@ -212,36 +215,48 @@ salsas_sobrantes = {}
 
 col_s1, col_s2 = st.columns(2)
 with col_s1:
-    st.markdown("🔹 **Gramos Hechos esta semana**")
+    st.markdown("🔹 **Gramos Elaborados (Semana anterior)**")
     for s in salsas_nombres:
         salsas_hechas[s] = st.number_input(
-            f"Hechos {s} (g):", min_value=0, value=1000, step=100, key=f"h_{s}"
+            f"Hecho {s} (g):", min_value=0, value=1000, step=100, key=f"h_{s}"
         )
 
 with col_s2:
-    st.markdown("🔸 **Gramos Sobrantes al Domingo**")
+    st.markdown("🗑️ **Gramos Tirados el Domingo (Merma)**")
     for s in salsas_nombres:
         salsas_sobrantes[s] = st.number_input(
-            f"Sobran {s} (g):", min_value=0, value=200, step=50, key=f"s_{s}"
+            f"Tirado de {s} (g):", min_value=0, value=150, step=50, key=f"s_{s}"
         )
 
-# Cálculo de consumo real de salsas
-st.info("💡 **Consumo real de salsas calculado esta semana:**")
+# Factor de escalado entre las ventas pasadas y la previsión futura
+ratio_ventas = (
+    (burgers_estimadas / ultimas_ventas) if ultimas_ventas > 0 else 1.0
+)
+
+st.markdown("### 👨‍🍳 Receta Recomendada a Elaborar el Miércoles:")
 for s in salsas_nombres:
-    consumo_salsa = max(0, salsas_hechas[s] - salsas_sobrantes[s])
-    st.write(f"- **{s}:** Se han consumido **{consumo_salsa} g**")
+    consumo_real = max(0, salsas_hechas[s] - salsas_sobrantes[s])
+
+    # Se calcula la nueva tanda según el consumo real ajustado por la previsión de burgers
+    gramos_recomendados = math.ceil((consumo_real * ratio_ventas) / 50) * 50
+    if gramos_recomendados < 200 and consumo_real > 0:
+        gramos_recomendados = 200  # Tanda mínima útil de producción
+
+    merma = salsas_sobrantes[s]
+    st.success(
+        f"👉 **Salsa {s}:** Preparar **{gramos_recomendados} g** para esta semana "
+        f"*(Consumo anterior: {consumo_real} g | Merma tirada: {merma} g)*"
+    )
 
 st.divider()
 
 # ==========================================================
 # 5. APARTADO DE STOCK GENERAL Y MÍNIMOS SEMANALES
 # ==========================================================
-st.markdown("📋 **Control de Stock General y Lista de Compra para el Domingo**")
-st.caption(
-    "Introduce la cantidad que te queda de cada producto al cerrar el local el domingo. La app te dirá automáticamente qué debes comprar y qué no."
+st.markdown(
+    "📋 **Control de Stock de Almacén (Recuento del Domingo por la Noche)**"
 )
 
-# Definimos los ítems de stock con su mínimo semanal
 items_stock = {
     "Papel de cera": {"min": 100, "unidad": "uds", "val": 120},
     "Cajas de burgers": {"min": 100, "unidad": "uds", "val": 150},
@@ -304,38 +319,36 @@ with col_st2:
             key=f"st_{item}",
         )
 
-st.markdown("### 🛒 Lista de Compra Sugerida (Basada en tus Mínimos y Stock)")
-comprar_algo = False
+st.markdown("### 🛒 Lista de Compra de Almacén (Para el Martes)")
 for item, conf in items_stock.items():
     sobra = stock_actual[item]
     minimo = conf["min"]
     if sobra < minimo:
         faltante = minimo - sobra
         st.warning(
-            f"⚠️ **Comprar {item}:** Te quedan {sobra} {conf['unidad']} (El mínimo es {minimo}). Faltan aprox. **{faltante} {conf['unidad']}**."
+            f"⚠️ **Comprar {item}:** Quedan {sobra} {conf['unidad']} (Mínimo: {minimo}). Faltan **{faltante} {conf['unidad']}**."
         )
-        comprar_algo = True
     else:
         st.success(
-            f"✅ **{item}:** Tienes {sobra} {conf['unidad']} (Suficiente, no comprar)."
+            f"✅ **{item}:** Hay {sobra} {conf['unidad']} (Stock suficiente)."
         )
 
 st.divider()
 
 # ==========================================================
-# 6. CIERRE DE SEMANA (GOOGLE SHEETS)
+# 6. CIERRE DE SEMANA Y REGISTRO
 # ==========================================================
-st.markdown("**🤖 Cierre de Semana (Domingo)**")
+st.markdown("**🤖 Cierre de Semana en Google Sheets**")
 
 panes_totales_disponibles = pan_sobrante_martes + (cajas_pan_pedir * 18)
 pan_sobrante_domingo = st.number_input(
-    "🍞 Panes sueltos que te quedan HOY DOMINGO al cerrar el local:",
+    "🍞 Panes sueltos sobrantes al cerrar el DOMINGO:",
     min_value=0,
     value=5,
     step=1,
 )
 
-if st.button("Guardar datos en Google Sheets y recalibrar IA"):
+if st.button("Guardar cierre de semana en Google Sheets"):
     ventas_calculadas = panes_totales_disponibles - pan_sobrante_domingo
     if ventas_calculadas >= 0:
         fecha_hoy = datetime.date.today().strftime("%Y-%m-%d")
@@ -348,7 +361,7 @@ if st.button("Guardar datos en Google Sheets y recalibrar IA"):
                 )
                 if "OK" in r.text:
                     st.success(
-                        f"🎯 **¡Guardado con éxito en Google Sheets!** Ventas registradas: ~{ventas_calculadas} burgers."
+                        f"🎯 **¡Guardado con éxito!** Se registraron ~{ventas_calculadas} burgers vendidas."
                     )
                     st.cache_data.clear()
                 else:
@@ -356,11 +369,8 @@ if st.button("Guardar datos en Google Sheets y recalibrar IA"):
             except Exception as e:
                 st.error(f"Error de conexión: {e}")
         else:
-            st.error(
-                "Falta configurar la variable URL_WEBAPP en Secrets de Streamlit."
-            )
+            st.error("Falta la URL_WEBAPP en Secrets.")
     else:
         st.error(
-            "El sobrante del domingo no puede ser mayor al total de panes disponibles."
+            "El sobrante del domingo no puede superar el total de panes disponibles."
         )
-
