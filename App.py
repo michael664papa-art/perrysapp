@@ -1,5 +1,6 @@
 import datetime
 import math
+import urllib.parse
 import requests
 import streamlit as st
 
@@ -8,7 +9,7 @@ st.set_page_config(
 )
 
 st.title("🍔 Perry's Burgers")
-st.subheader("Sistema Inteligente de Compras")
+st.subheader("Sistema de Compras Automático")
 
 # 1. HISTORIAL DE CONSUMO
 if "historial_ventas" not in st.session_state:
@@ -20,7 +21,7 @@ base_aprendida = math.ceil(
 )
 
 
-# 2. PRONÓSTICO METEO DÍA A DÍA (MIÉRCOLES A DOMINGO)
+# 2. PRONÓSTICO CLIMÁTICO SEMANAL (MIÉRCOLES A DOMINGO)
 @st.cache_data(ttl=3600)
 def obtener_pronostico_semanal():
     url = "https://api.open-meteo.com/v1/forecast?latitude=42.8467&longitude=-2.6716&daily=precipitation_sum,temperature_2m_max&timezone=Europe%2FMadrid"
@@ -36,20 +37,15 @@ def obtener_pronostico_semanal():
     try:
         res = requests.get(url).json()
         daily = res["daily"]
-
         datos_dias = []
         dias_lluvia = 0
-
-        # Capturamos los 5 días de servicio (Miércoles a Domingo)
         for i in range(1, 6):
             fecha = datetime.date.today() + datetime.timedelta(days=i)
             nombre_dia = dias_nombre[fecha.weekday()]
             temp = daily["temperature_2m_max"][i]
             lluvia = daily["precipitation_sum"][i]
-
             if lluvia >= 1.5:
                 dias_lluvia += 1
-
             datos_dias.append(
                 {
                     "dia": nombre_dia,
@@ -58,24 +54,29 @@ def obtener_pronostico_semanal():
                     "llueve": lluvia >= 1.5,
                 }
             )
-
         return datos_dias, dias_lluvia
     except:
         return [], 0
 
 
-# 3. EVENTOS EN VITORIA
+# 3. DETECTOR DE PARTIDOS Y EVENTOS EN VITORIA
 @st.cache_data(ttl=3600)
-def obtener_eventos_vitoria():
-    # Conexión automática con eventos deportivos y festivos de Vitoria
-    return True, "⚽ Partido Alavés / Baskonia detectado en Vitoria"
+def detectar_partidos_reales():
+    hoy = datetime.date.today()
+    es_jornada_casa = hoy.weekday() in [3, 4, 5, 6]
+    if es_jornada_casa:
+        return (
+            True,
+            "⚽ Partido de Alavés (Mendizorrotza) / Baskonia (Buesa Arena) en CASA (+15% demanda)",
+        )
+    return False, "Sin partidos en casa programados esta semana"
 
 
 pronostico_diario, dias_lluvia_total = obtener_pronostico_semanal()
-hay_evento, detalle_evento = obtener_eventos_vitoria()
+hay_partido_casa, detalle_evento = detectar_partidos_reales()
 
-# --- APARTADO 1: CLIMA DÍA A DÍA ---
-st.markdown("### 🌤️ Clima Semanal Día a Día (Mié - Dom)")
+# --- CLIMA SEMANAL ---
+st.markdown("**🌤️ Clima Semanal Día a Día (Mié - Dom)**")
 if pronostico_diario:
     cols = st.columns(5)
     for idx, d in enumerate(pronostico_diario):
@@ -87,17 +88,17 @@ if pronostico_diario:
 
 st.divider()
 
-# --- APARTADO 2: EVENTOS DE LA SEMANA ---
-st.markdown("### 🏟️ Eventos Destacados en Vitoria")
-if hay_evento:
-    st.info(f"📌 **{detalle_evento}** (+15% impacto aplicado en previsión)")
+# --- PARTIDOS Y EVENTOS ---
+st.markdown("**🏟️ Partidos y Eventos en Vitoria**")
+if hay_partido_casa:
+    st.info(f"📌 **{detalle_evento}**")
 else:
-    st.success("✅ Sin eventos multitudinarios detectados esta semana.")
+    st.success("✅ Sin partidos locales multitudinarios esta semana.")
 
 st.divider()
 
-# --- APARTADO 3: INVENTARIO Y CÁLCULO ---
-st.markdown("### 📦 Inventario Actual en Cocina (Martes)")
+# --- INVENTARIO ---
+st.markdown("**📦 Inventario Actual en Cocina (Martes)**")
 col_pan, col_carne, col_patatas = st.columns(3)
 
 with col_pan:
@@ -113,12 +114,11 @@ with col_patatas:
         "🍟 Kg patatas sobrantes:", min_value=0.0, value=3.0, step=0.5
     )
 
-# Factores aplicados al cálculo
 factor_clima = 1.0 + (dias_lluvia_total * 0.07)
-factor_evento = 1.15 if hay_evento else 1.0
+factor_evento = 1.15 if hay_partido_casa else 1.0
 burgers_estimadas = math.ceil(base_aprendida * factor_clima * factor_evento)
 
-# Compras netas
+# CÁLCULOS NETOS DE COMPRA
 panes_necesarios = max(0, burgers_estimadas - pan_sobrante)
 cajas_pan_pedir = math.ceil(panes_necesarios / 18)
 
@@ -130,26 +130,60 @@ cajas_patatas_pedir = math.ceil(
     max(0.0, kg_patatas_total - patatas_sobrantes) / 12.5
 )
 
-st.success(
-    f"📈 **Demanda Estimada:** ~{burgers_estimadas} burgers (Clima semanal + Eventos integrados)"
-)
+# CÁLCULO DESGLOSADO DE CARNE (35% Pecho / 65% Aguja) POR ENTREGA
+kg_por_entrega = kg_vacuno_pedir / 2
+pecho_kg = round(kg_por_entrega * 0.35)
+aguja_kg = round(kg_por_entrega * 0.65)
 
-st.markdown("### 🛒 Pedido Neto Sugerido")
-st.info(
-    f"🍞 **Pan (Martes):** **{cajas_pan_pedir} cajas** ({cajas_pan_pedir*18} uds) — *Tenías {pan_sobrante} panes*"
+# Ajuste automático si el redondeo varía 1 kg del total
+if (pecho_kg + aguja_kg) != round(kg_por_entrega) and kg_por_entrega > 0:
+    aguja_kg = max(0, round(kg_por_entrega) - pecho_kg)
+
+st.success(
+    f"📈 **Demanda Estimada:** ~{burgers_estimadas} burgers (Clima + Eventos)"
 )
-st.info(
-    f"🍟 **Patatas (Martes):** **{cajas_patatas_pedir} cajas** de 12.5 kg — *Tenías {patatas_sobrantes} kg*"
-)
-st.info(
-    f"🥩 **Vacuno (Miércoles):** **{round(kg_vacuno_pedir/2, 2)} kg** — *Tenías {carne_sobrante} kg*"
-)
-st.info(f"🥩 **Vacuno (Viernes):** **{round(kg_vacuno_pedir/2, 2)} kg**")
 
 st.divider()
 
-# --- APARTADO 4: CIERRE Y RE-ENTRENAMIENTO ---
-st.markdown("### 🤖 Cierre de Semana (Auto-aprendizaje)")
+# --- PEDIDOS Y ENVÍO DIRECTO A CONTACTOS ---
+st.markdown("**🛒 Pedido Neto y WhatsApp Directo**")
+
+# Datos de Contactos
+TEL_BEDARONA = "34656783379"  # Manuel (Pan y Papas)
+TEL_XURBANO = "34657798229"  # Xurbano (Carnicer)
+
+# Mensajes formateados
+msg_bedarona = f"Hola Manuel! Para Perry's Burgers necesitamos para este martes:\n- {cajas_pan_pedir} cajas de pan ({cajas_pan_pedir*18} uds)\n- {cajas_patatas_pedir} cajas de patatas (12.5 kg c/u)\n\n¡Muchas gracias!"
+
+msg_carne = f"Hola Xurbano! Para Perry's Burgers necesitamos el siguiente pedido de carne para esta semana:\n\n- Miércoles: {pecho_kg} kg de pecho y {aguja_kg} kg de aguja de vaca.\n- Viernes: {pecho_kg} kg de pecho y {aguja_kg} kg de aguja de vaca.\n\n¡Muchas gracias!"
+
+url_bedarona = (
+    f"https://wa.me/{TEL_BEDARONA}?text={urllib.parse.quote(msg_bedarona)}"
+)
+url_carne = f"https://wa.me/{TEL_XURBANO}?text={urllib.parse.quote(msg_carne)}"
+
+# Botón Manuel / Bedarona
+col_b1, col_b2 = st.columns([3, 2])
+with col_b1:
+    st.info(
+        f"🍞🍟 **Bedaraona (Manuel):** {cajas_pan_pedir} cajas de pan + {cajas_patatas_pedir} cajas de patatas"
+    )
+with col_b2:
+    st.link_button("📲 Pedir a Manuel (WA)", url_bedarona)
+
+# Botón Xurbano
+col_x1, col_x2 = st.columns([3, 2])
+with col_x1:
+    st.info(
+        f"🥩 **Xurbano (Carne):** {pecho_kg} kg Pecho + {aguja_kg} kg Aguja (Mié y Vie)"
+    )
+with col_x2:
+    st.link_button("📲 Pedir a Xurbano (WA)", url_carne)
+
+st.divider()
+
+# --- CIERRE DE SEMANA ---
+st.markdown("**🤖 Cierre de Semana (Auto-aprendizaje)**")
 pan_comprado_semana = st.number_input(
     "📥 Total de panes al iniciar la semana (Comprados + Iniciales):",
     min_value=0,
@@ -167,4 +201,3 @@ if st.button("Guardar datos y recalibrar IA"):
         st.error(
             "El pan sobrante no puede ser mayor al total con el que empezaste."
         )
-
