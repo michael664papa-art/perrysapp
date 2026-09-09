@@ -5,7 +5,6 @@ import pandas as pd
 import requests
 import streamlit as st
 
-# Configuración de página
 st.set_page_config(
     page_title="Perry's Burgers - Control Total Pro",
     page_icon="🍔",
@@ -17,6 +16,7 @@ st.title("🍔 Perry's Burgers")
 
 # URL del conector de Google Sheets desde Secrets
 URL_WEBAPP = st.secrets.get("URL_WEBAPP", "")
+TEL_MI_NUMERO = "34643277489"  # Teléfono configurado para lista de compra
 
 
 # 1. CARGA DE HISTORIAL
@@ -95,7 +95,6 @@ factor_clima = 1.0 + (dias_lluvia_total * 0.07)
 factor_evento = 1.15 if hay_partido_casa else 1.0
 burgers_estimadas = math.ceil(base_aprendida * factor_clima * factor_evento)
 
-
 # METRICAS PRINCIPALES EN CABECERA
 col_h1, col_h2, col_h3 = st.columns(3)
 with col_h1:
@@ -120,7 +119,6 @@ tab_martes, tab_miercoles, tab_domingo = st.tabs(
 with tab_martes:
     st.subheader("🗓️ Gestión de Pedidos del Martes")
 
-    # Clima
     st.markdown("**🌤️ Tiempo en Vitoria (Mié - Dom)**")
     if pronostico_diario:
         cols = st.columns(5)
@@ -130,7 +128,6 @@ with tab_martes:
                 st.caption(f"**{d['dia']}**")
                 st.write(f"{emoji} {d['temp']}")
 
-    # Eventos
     if hay_partido_casa:
         st.info(f"📌 **{detalle_evento}**")
     else:
@@ -153,7 +150,6 @@ with tab_martes:
             "🍟 Kg patatas sobrantes:", min_value=0.0, value=2.0, step=0.5
         )
 
-    # Cálculos
     panes_necesarios = max(0, burgers_estimadas - pan_sobrante_martes)
     cajas_pan_pedir = math.ceil(panes_necesarios / 18)
 
@@ -208,7 +204,7 @@ with tab_martes:
 with tab_miercoles:
     st.subheader("👨‍🍳 Tanda de Producción de Salsas")
     st.caption(
-        "Ajustado según las ventas estimadas de esta semana y las mermas registradas el domingo."
+        "Escandallos integrados: Sweet (Sweet & Classic @ 20g/ud), Lima (Chicken @ 30g/ud), Trufa (Trufada)."
     )
 
     salsas_nombres = ["Sweet", "Trufa", "Lima", "BBQ", "Cheddar", "Mex"]
@@ -254,12 +250,20 @@ with tab_miercoles:
             gramos_recomendados = 200
 
         total_merma_g += salsas_sobrantes[s]
-        st.success(f"👉 **Salsa {s}:** Preparar **{gramos_recomendados} g**")
 
-    # Estimación económica de mermas (promedio ~0.012€ por gramo de salsa)
+        nota_escandallo = ""
+        if s == "Sweet":
+            nota_escandallo = " (Chesse/Classic + Sweet & Cryspy)"
+        elif s == "Lima":
+            nota_escandallo = " (Lima Cryspy Chicken @ 30g)"
+
+        st.success(
+            f"👉 **Salsa {s}{nota_escandallo}:** Preparar **{gramos_recomendados} g**"
+        )
+
     coste_estimado_merma = round(total_merma_g * 0.012, 2)
     st.warning(
-        f"🗑️ **Mermas del domingo:** Tiraste {total_merma_g}g de salsa en total (~{coste_estimado_merma}€ perdidos). La IA ha reducido las tandas para evitar este desperdicio."
+        f"🗑️ **Mermas del domingo:** Tiraste {total_merma_g}g de salsa en total (~{coste_estimado_merma}€ perdidos)."
     )
 
 
@@ -360,9 +364,13 @@ with tab_domingo:
         st.success("✅ Todo el stock de almacén supera los mínimos.")
         lista_compra_txt += "Todo en orden. No hace falta comprar nada."
 
-    # Botón enviar lista por WA
-    url_lista_wa = f"https://wa.me/?text={urllib.parse.quote(lista_compra_txt)}"
-    st.link_button("📲 Enviar Lista de Compra por WhatsApp", url_lista_wa)
+    # Enviar directo a +34 643 27 74 89
+    url_lista_wa = (
+        f"https://wa.me/{TEL_MI_NUMERO}?text={urllib.parse.quote(lista_compra_txt)}"
+    )
+    st.link_button(
+        "📲 Enviar Lista de Compra por WhatsApp (+34 643 27 74 89)", url_lista_wa
+    )
 
     st.markdown("---")
     st.markdown("### 🤖 Cierre de Semana y Envío a Sheets")
