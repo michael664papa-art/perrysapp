@@ -14,6 +14,9 @@ st.set_page_config(
 
 st.title("🍔 Perry's Burgers")
 
+# Configuración de constantes
+UNIDADES_POR_CAJA_PAN = 18  # Cambiar aquí si el formato de caja varía
+
 # URL del conector de Google Sheets y Secrets
 URL_WEBAPP = st.secrets.get("URL_WEBAPP", "")
 SUMUP_API_KEY = st.secrets.get("SUMUP_API_KEY", "")
@@ -22,12 +25,18 @@ TEL_MI_NUMERO = "34643277489"
 # Nombres de salsas
 salsas_nombres = ["Sweet", "Trufa", "Lima", "BBQ", "Cheddar", "Mex"]
 
-# Inicializar estados de producción y mermas en sesión si no existen
+# Inicializar estados en sesión si no existen
 if "salsas_hechas" not in st.session_state:
     st.session_state.salsas_hechas = {s: 850 for s in salsas_nombres}
 
 if "salsas_sobrantes" not in st.session_state:
     st.session_state.salsas_sobrantes = {s: 100 for s in salsas_nombres}
+
+if "pan_sobrante_martes" not in st.session_state:
+    st.session_state.pan_sobrante_martes = 15
+
+if "cajas_pan_pedir" not in st.session_state:
+    st.session_state.cajas_pan_pedir = 0
 
 
 # 1. CARGA DE HISTORIAL
@@ -175,9 +184,15 @@ with tab_martes:
 
     col_pan, col_carne, col_patatas = st.columns(3)
     with col_pan:
-        pan_sobrante_martes = st.number_input(
-            "🍞 Panes sobrantes (domingo):", min_value=0, value=15, step=1
+        pan_sobrante_input = st.number_input(
+            "🍞 Panes sobrantes (domingo anterior):",
+            min_value=0,
+            value=int(st.session_state.pan_sobrante_martes),
+            step=1,
+            key="input_pan_martes",
         )
+        st.session_state.pan_sobrante_martes = pan_sobrante_input
+
     with col_carne:
         carne_sobrante_martes = st.number_input(
             "🥩 Kg carne sobrantes:", min_value=0.0, value=0.0, step=0.5
@@ -187,8 +202,13 @@ with tab_martes:
             "🍟 Kg patatas sobrantes:", min_value=0.0, value=2.0, step=0.5
         )
 
-    panes_necesarios = max(0, burgers_estimadas - pan_sobrante_martes)
-    cajas_pan_pedir = math.ceil(panes_necesarios / 18)
+    panes_necesarios = max(
+        0, burgers_estimadas - st.session_state.pan_sobrante_martes
+    )
+    cajas_pan_pedir = math.ceil(panes_necesarios / UNIDADES_POR_CAJA_PAN)
+
+    # GUARDAR CAJAS EN SESSION STATE PARA EL DOMINGO
+    st.session_state.cajas_pan_pedir = cajas_pan_pedir
 
     kg_vacuno_total = (burgers_estimadas * 0.8) * 0.180
     kg_vacuno_pedir = max(0.0, kg_vacuno_total - carne_sobrante_martes)
@@ -221,7 +241,7 @@ with tab_martes:
     col_b1, col_b2 = st.columns([3, 2])
     with col_b1:
         st.info(
-            f"🍞🍟 **Manuel:** {cajas_pan_pedir} cajas pan | {cajas_patatas_pedir} cajas patatas"
+            f"🍞🍟 **Manuel:** {cajas_pan_pedir} cajas pan ({cajas_pan_pedir * UNIDADES_POR_CAJA_PAN} ud) | {cajas_patatas_pedir} cajas patatas"
         )
     with col_b2:
         st.link_button("📲 Pedir a Manuel", url_bedarona)
@@ -460,19 +480,37 @@ with tab_domingo:
     st.markdown("---")
     st.markdown("### 🤖 Cierre de Semana y Envío a Sheets")
 
-    panes_totales_disponibles = pan_sobrante_martes + (cajas_pan_pedir * 18)
+    # CÁLCULO AUTOMÁTICO REVISADO CON SESSION STATE
+    panes_martes_memoria = st.session_state.get("pan_sobrante_martes", 15)
+    cajas_pedidas_memoria = st.session_state.get("cajas_pan_pedir", 0)
+    panes_comprados_totales = cajas_pedidas_memoria * UNIDADES_POR_CAJA_PAN
+
+    panes_totales_disponibles = (
+        panes_martes_memoria + panes_comprados_totales
+    )
+
+    st.info(
+        f"🍞 **Stock Total Disponible:** `{panes_totales_disponibles} panes` "
+        f"({panes_martes_memoria} inicio + {cajas_pedidas_memoria} cajas de {UNIDADES_POR_CAJA_PAN} ud)."
+    )
+
     pan_sobrante_domingo = st.number_input(
-        "🍞 Panes sueltos que quedan el DOMINGO AL CERRAR:",
+        "🍞 Panes sueltos que quedan HOY DOMINGO AL CERRAR:",
         min_value=0,
         value=5,
         step=1,
     )
 
+    ventas_calculadas = panes_totales_disponibles - pan_sobrante_domingo
+
+    st.success(
+        f"📊 **Panes vendidos calculados automáticamente:** `{ventas_calculadas} hamburguesas`"
+    )
+
     confirmar = st.checkbox("✔ Confirmar que quiero registrar el cierre hoy")
 
-    if st.button("Guardar Cierre en Google Sheets", disabled=not confirmar):
+    if st.button("💾 Guardar Cierre en Google Sheets", disabled=not confirmar):
         st.session_state.salsas_sobrantes = nuevas_mermas
-        ventas_calculadas = panes_totales_disponibles - pan_sobrante_domingo
         if ventas_calculadas >= 0:
             fecha_hoy = datetime.date.today().strftime("%Y-%m-%d")
             if URL_WEBAPP:
@@ -488,7 +526,7 @@ with tab_domingo:
                     )
                     if "OK" in r.text:
                         st.success(
-                            f"🎯 **¡Guardado con éxito!** Se registraron ~{ventas_calculadas} burgers, {sumup_euros}€ de SumUp y las mermas de salsa."
+                            f"🎯 **¡Guardado con éxito!** Se registraron {ventas_calculadas} burgers vendidas, {sumup_euros}€ de SumUp y las mermas de salsa."
                         )
                         st.cache_data.clear()
                     else:
@@ -499,5 +537,6 @@ with tab_domingo:
                 st.error("Falta la URL_WEBAPP en Secrets.")
         else:
             st.error(
-                "El sobrante del domingo no puede superar los panes disponibles."
+                "El sobrante del domingo no puede superar los panes disponibles totales."
             )
+
