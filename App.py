@@ -14,8 +14,9 @@ st.set_page_config(
 
 st.title("🍔 Perry's Burgers")
 
-# URL del conector de Google Sheets desde Secrets
+# URL del conector de Google Sheets y Secrets
 URL_WEBAPP = st.secrets.get("URL_WEBAPP", "")
+SUMUP_API_KEY = st.secrets.get("SUMUP_API_KEY", "")
 TEL_MI_NUMERO = "34643277489"
 
 # Nombres de salsas
@@ -42,12 +43,38 @@ def cargar_historial(url):
     return [55, 50, 58]
 
 
+# 2. CONSULTA AUTOMÁTICA A SUMUP
+@st.cache_data(ttl=300)
+def obtener_ventas_sumup(api_key):
+    if not api_key:
+        return 0.0, 0
+    try:
+        fecha_fin = datetime.date.today().strftime("%Y-%m-%d")
+        fecha_inicio = (
+            datetime.date.today() - datetime.timedelta(days=7)
+        ).strftime("%Y-%m-%d")
+
+        url = f"https://api.sumup.com/v0.1/me/transactions/history?statuses[]=SUCCESSFUL&changes_since={fecha_inicio}T00:00:00Z"
+        headers = {"Authorization": f"Bearer {api_key}"}
+
+        response = requests.get(url, headers=headers, timeout=5)
+        if response.status_code == 200:
+            datos = response.json()
+            items = datos.get("items", [])
+            total_euros = sum(tx.get("amount", 0.0) for tx in items)
+            total_operaciones = len(items)
+            return round(total_euros, 2), total_operaciones
+    except Exception:
+        pass
+    return 0.0, 0
+
+
 historial_ventas = cargar_historial(URL_WEBAPP)
 base_aprendida = math.ceil(sum(historial_ventas) / len(historial_ventas))
 ultimas_ventas = historial_ventas[-1] if historial_ventas else 50
 
 
-# 2. PRONÓSTICO CLIMÁTICO (MIÉRCOLES A DOMINGO)
+# 3. PRONÓSTICO CLIMÁTICO (MIÉRCOLES A DOMINGO)
 @st.cache_data(ttl=3600)
 def obtener_pronostico_semanal():
     url = "https://api.open-meteo.com/v1/forecast?latitude=42.8467&longitude=-2.6716&daily=precipitation_sum,temperature_2m_max&timezone=Europe%2FMadrid"
@@ -61,7 +88,7 @@ def obtener_pronostico_semanal():
         "Domingo",
     ]
     try:
-        res = requests.get(url).json()
+        res = requests.get(url, timeout=5).json()
         daily = res["daily"]
         datos_dias = []
         dias_lluvia = 0
@@ -85,7 +112,7 @@ def obtener_pronostico_semanal():
         return [], 0
 
 
-# 3. DETECTOR DE EVENTOS
+# 4. DETECTOR DE EVENTOS
 @st.cache_data(ttl=3600)
 def detectar_partidos_reales():
     hoy = datetime.date.today()
@@ -221,16 +248,13 @@ with tab_miercoles:
         (burgers_estimadas / ultimas_ventas) if ultimas_ventas > 0 else 1.0
     )
 
-    # Cálculo exacto: Consumo Real = Elaborado - Sobrante
     salsas_recomendadas = {}
     for s in salsas_nombres:
         hecho_prev = st.session_state.salsas_hechas.get(s, 850)
         sobra_prev = st.session_state.salsas_sobrantes.get(s, 100)
 
-        # Consumo real neto consumido por los clientes
         consumo_real = max(0, hecho_prev - sobra_prev)
 
-        # Sugerir para la nueva semana según la nueva estimación de ventas
         rec = math.ceil((consumo_real * ratio_ventas) / 50) * 50
         if rec < 200 and consumo_real > 0:
             rec = 200
@@ -284,10 +308,30 @@ with tab_miercoles:
 with tab_domingo:
     st.subheader("📋 Recuento y Cierre (Domingo Noche)")
 
+    # VENTAS AUTOMÁTICAS DESDE SUMUP
+    st.markdown("### 💳 Facturación Local (SumUp API)")
+    sumup_euros_auto, sumup_ops_auto = obtener_ventas_sumup(SUMUP_API_KEY)
+
+    col_sum1, col_sum2 = st.columns(2)
+    with col_sum1:
+        st.metric("Total Cobrado SumUp (7 días)", f"{sumup_euros_auto:.2f} €")
+    with col_sum2:
+        st.metric("Operaciones Concretadas", f"{sumup_ops_auto} ops")
+
+    with st.expander("⚙️ Modificar manualmente datos de SumUp (Opcional)"):
+        sumup_euros = st.number_input(
+            "Euros SumUp:", value=sumup_euros_auto, step=1.0
+        )
+        sumup_ops = st.number_input(
+            "Operaciones SumUp:", value=sumup_ops_auto, step=1
+        )
+
+    st.markdown("---")
+
     # RECUENTO DE SALSAS SOBRANTES DEL DOMINGO
     st.markdown("### 🥣 Gramos de Salsa Sobrantes (Sobrante/Tirado)")
     st.caption(
-        "Introduce lo que ha quedado en los recipientes el domingo al cerrar. La app lo restará de lo que hiciste el miércoles para recalcular la producción exacta de la próxima semana."
+        "Introduce lo que ha quedado en los recipientes el domingo al cerrar."
     )
 
     nuevas_mermas = {}
@@ -310,10 +354,8 @@ with tab_domingo:
     total_merma_g = sum(nuevas_mermas.values())
     coste_estimado_merma = round(total_merma_g * 0.012, 2)
 
-    # Detalle de consumo neto
     st.warning(
-        f"🗑️ **Sobrantes totales:** {total_merma_g}g tirados (~{coste_estimado_merma}€ en mermas). "
-        f"Este excedente se descontará de la receta de la semana que viene."
+        f"🗑️ **Sobrantes totales:** {total_merma_g}g tirados (~{coste_estimado_merma}€ en mermas)."
     )
 
     st.markdown("---")
@@ -435,17 +477,18 @@ with tab_domingo:
             fecha_hoy = datetime.date.today().strftime("%Y-%m-%d")
             if URL_WEBAPP:
                 try:
+                    params_envio = {
+                        "fecha": fecha_hoy,
+                        "ventas": ventas_calculadas,
+                        "sumup_euros": sumup_euros,
+                        "sumup_operaciones": sumup_ops,
+                    }
                     r = requests.get(
-                        URL_WEBAPP,
-                        params={
-                            "fecha": fecha_hoy,
-                            "ventas": ventas_calculadas,
-                        },
-                        timeout=10,
+                        URL_WEBAPP, params=params_envio, timeout=10
                     )
                     if "OK" in r.text:
                         st.success(
-                            f"🎯 **¡Guardado con éxito!** Se registraron ~{ventas_calculadas} burgers y las mermas de salsa."
+                            f"🎯 **¡Guardado con éxito!** Se registraron ~{ventas_calculadas} burgers, {sumup_euros}€ de SumUp y las mermas de salsa."
                         )
                         st.cache_data.clear()
                     else:
